@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  pull_request:
+    branches: [ master ]
+  push:
+    tags:
+      - "*beta*"
+      - "*pre*"
+      - "1[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  prerelease:
+    name: Pre-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      # - name: match-tag-to-package-version
+      #   uses: geritol/match-tag-to-package-version@0.0.2
+      #   env:
+      #     TAG_PREFIX: refs/tags/ # Optional, default prefix refs/tags/
+
+      - name: Use Node.js 15.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 15.x
+      - run: npm install
+      - run: node ./tools/build.js -t node
+      # - run: npm test
+
+      - if: contains(env.GITHUB_REF, 'beta') || contains(env.GITHUB_REF, 'pre')
+        run: echo "NPM_TAG=beta" >> $GITHUB_ENV
+
+      - if: ${{ !(contains(env.GITHUB_REF, 'beta') || contains(env.GITHUB_REF, 'pre')) }}
+        run: echo "NPM_TAG=latest" >> $GITHUB_ENV
+
+      - name: Publish to NPM
+        id: publish
+        uses: JS-DevTools/npm-publish@v1
+        with:
+          check-version: true
+          dry-run: true
+          token: ${{ secrets.NPM_TOKEN }}
+          package: ./build/package.json
+          tag: ${{ env.NPM_TAG }}
+
+      - if: steps.publish.outputs.type != 'none'
+        run: |
+          echo "Version changed: ${{ steps.publish.outputs.old-version }} => ${{ steps.publish.outputs.version }}"
+
+      - run: echo "TAG_NAME=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+      - if: ${{ !contains(github.ref,'/refs/tags/') }}
+        run: echo "TAG_NAME=0.0.0-test0" >> $GITHUB_ENV
+
+      - name: Checkout cdn-release
+        uses: actions/checkout@v2
+        with:
+          repository: 'highlightjs/cdn-release'
+          path: 'cdn-release'
+          token: ${{ secrets.CDN_REPO_TOKEN }}
+
+      - name: Build CDN package
+        run: node ./tools/build.js -t cdn :common
+
+      - name: Commmit & Push cdn-release ${{ env.TAG_NAME }}
+        working-directory: ./cdn-release
+        run: |
+          rm -r ./build
+          mv ../build/ ./build/
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add ./build/
+          git commit -m'Update to version ${{ env.TAG_NAME }}'
+          git tag ${TAG_NAME}
+          git push -f --atomic origin HEAD:test_branch ${TAG_NAME}
+
+      - name: Publish cdn-assets to NPM
+        id: publish_cdn
+        uses: JS-DevTools/npm-publish@v1
+        with:
+          check-version: true
+          dry-run: true
+          token: ${{ secrets.NPM_TOKEN }}
+          package: ./cdn-release/build/package.json
+          tag: ${{ env.NPM_TAG }}
+
+        # log.info('Updating CDN repo at %s' % settings.HLJS_CDN_SOURCE)
+        # run(['nodejs', 'tools/build.js', '--target', 'cdn', ':common'])
+        # os.chdir(settings.HLJS_CDN_SOURCE)
+        # run(['git', 'pull', '-f'])
+        # lines = run(['git', '--git-dir', os.path.join(settings.HLJS_CDN_SOURCE, '.git'), 'tag'])
+        # build_dir = os.path.join(settings.HLJS_CDN_SOURCE, 'build')
+        # if version in lines:
+        #     log.info('Tag %s already exists in the local CDN repo' % version)
+        # else:
+        #     if os.path.exists(build_dir):
+        #         shutil.rmtree(build_dir)
+        #     shutil.move(os.path.join(settings.HLJS_SOURCE, 'build'), build_dir)
+        #     run(['git', 'add', '.'])
+        #     run(['git', 'commit', '-m', 'Update to version %s' % version])
+        #     run(['git', 'tag', version])
+        # run(['git', 'push'])
+        # run(['git', 'push', '--tags'])
+        # npm_publish(build_dir)
+        # os.chdir(settings.HLJS_SOURCE)
