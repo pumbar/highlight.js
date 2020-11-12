@@ -14,7 +14,7 @@ jobs:
     name: Pre-release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout highlight.js
         uses: actions/checkout@v2
 
       # - name: match-tag-to-package-version
@@ -26,9 +26,10 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: 15.x
-      - run: npm install
-      - run: node ./tools/build.js -t node
-      # - run: npm test
+      - name: Build Node.js package
+        run: npm install
+        run: node ./tools/build.js -t node
+      #   run: npm test
 
       - if: contains(env.GITHUB_REF, 'beta') || contains(env.GITHUB_REF, 'pre')
         run: echo "NPM_TAG=beta" >> $GITHUB_ENV
@@ -36,7 +37,7 @@ jobs:
       - if: ${{ !(contains(env.GITHUB_REF, 'beta') || contains(env.GITHUB_REF, 'pre')) }}
         run: echo "NPM_TAG=latest" >> $GITHUB_ENV
 
-      - name: Publish to NPM
+      - name: Publish highlight.js to NPM
         id: publish
         uses: JS-DevTools/npm-publish@v1
         with:
